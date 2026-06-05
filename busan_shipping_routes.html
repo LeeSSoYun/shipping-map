@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Busan Shipping Routes</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #cde8f5; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+  #wrap { position: relative; width: 100vw; height: 100vh; }
+  #map { width: 100%; height: 100%; display: block; }
+  #controls {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(255,255,255,0.96);
+    border-top: 0.5px solid #ddd;
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  button {
+    border: none; border-radius: 6px;
+    padding: 6px 13px; font-size: 12px;
+    cursor: pointer; font-weight: 600;
+    transition: opacity 0.15s;
+  }
+  button:hover { opacity: 0.85; }
+  #btn-all { background: #1a1a2e; color: white; }
+  #btn-reset { background: #666; color: white; }
+  #route-btns { display: flex; gap: 5px; flex-wrap: wrap; }
+  #info-box {
+    margin-left: auto; font-size: 11px;
+    color: #333; text-align: right;
+    min-width: 220px; line-height: 1.6;
+  }
+  #legend {
+    position: absolute; top: 12px; right: 12px;
+    background: rgba(255,255,255,0.93);
+    border-radius: 8px; padding: 8px 13px;
+    font-size: 10.5px; line-height: 1.9;
+    border: 0.5px solid #ccc;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <svg id="map"></svg>
+  <div id="controls">
+    <button id="btn-all" onclick="playAll()">▶ 전체 재생</button>
+    <button id="btn-reset" onclick="resetAll()">↺ 초기화</button>
+    <div id="route-btns"></div>
+    <div id="info-box"></div>
+  </div>
+  <div id="legend"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script>
+const W = window.innerWidth;
+const H = window.innerHeight;
+const svg = d3.select("#map").attr("viewBox", `0 0 ${W} ${H}`);
+
+const atl = [
+  [18.50, -34.80],
+  [-25.0, 20.0],
+];
+
+const capeHamburg = [
+  [103.82,1.35],[80.0,-12.0],[45.0,-30.0],
+  ...atl,
+  [-15.0,35.0],[-8.0,48.0],[3.0,52.0],[4.47,51.92],[9.99,53.55],
+];
+
+const capePoland = [
+  [103.82,1.35],[80.0,-12.0],[45.0,-30.0],
+  ...atl,
+  [-20.0,43.0],[-12.0,62.0],[14.0,56.0],[18.47,54.35],
+];
+
+const ROUTES = [
+  {
+    name:"U.S.A.", color:"#1565c0",
+    sea:[[129.07,35.10],[242,33.74]],
+    inland:[[[242,33.74],[272.35,41.85]],[[242,33.74],[276.03,39.60]],[[242,33.74],[269.95,35.15]],[[242,33.74],[263.2,32.78]]],
+    stops:"부산 → (태평양 직항) → LA/Long Beach",
+    inlandStops:"→ Chicago / Elkton MD / Memphis / Dallas (내륙)",
+    showPorts:["LA/Long Beach","Chicago IL","Elkton MD","Memphis TN","Dallas TX"]
+  },
+  {
+    name:"Japan (Tokyo)", color:"#d32f2f",
+    sea:[[129.07,35.10],[132.0,34.5],[135.5,34.8],[138.0,35.5],[139.70,35.68]],
+    stops:"부산 → (대한해협) → 도쿄 직항 ✓",
+    showPorts:["Tokyo"]
+  },
+  {
+    name:"Singapore", color:"#00897b",
+    sea:[[129.07,35.10],[121.47,31.23],[118.08,24.48],[103.82,1.35]],
+    stops:"부산→상하이→샤먼→싱가포르",
+    showPorts:["Shanghai","Xiamen (샤먼)","Singapore"]
+  },
+  {
+    name:"Jakarta", color:"#e65100",
+    sea:[[129.07,35.10],[114.17,22.32],[103.82,1.35],[106.82,-6.18]],
+    stops:"부산→홍콩→싱가포르→Jakarta ✓",
+    showPorts:["Hong Kong","Singapore","Jakarta"]
+  },
+  {
+    name:"Jebel Ali (두바이)", color:"#0277bd",
+    sea:[[129.07,35.10],[103.82,1.35],[72.0,8.0],[60.0,18.0],[55.13,25.10]],
+    stops:"부산→싱가포르→(아라비아해)→Jebel Ali",
+    showPorts:["Singapore","Jebel Ali"]
+  },
+  {
+    name:"Dammam (사우디)", color:"#c62828",
+    sea:[[129.07,35.10],[103.82,1.35],[72.0,8.0],[60.0,18.0],[55.13,25.10],[50.10,26.43]],
+    stops:"부산→싱가포르→(아라비아해)→Jebel Ali→Dammam",
+    showPorts:["Singapore","Jebel Ali","Dammam"]
+  },
+  {
+    name:"Jeddah (사우디)", color:"#c2185b",
+    sea:[[129.07,35.10],[103.82,1.35],[80.0,6.0],[65.0,12.0],[50.0,11.5],[45.0,11.8],[43.5,12.5],[43.0,14.0],[42.5,16.5],[41.5,19.0],[40.5,21.0],[39.20,21.48]],
+    stops:"부산→싱가포르→(아덴만)→바브엘만데브→(홍해)→Jeddah",
+    showPorts:["Singapore","Jeddah"]
+  },
+  {
+    name:"태국 Laem Chabang", color:"#6a1b9a",
+    sea:[[129.07,35.10],[121.47,31.23],[103.82,1.35],[100.90,13.08]],
+    stops:"부산→상하이→싱가포르→태국 Laem Chabang",
+    showPorts:["Shanghai","Singapore","Laem Chabang\n(Thailand)"]
+  },
+  {
+    name:"India", color:"#6d4c41",
+    sea:[[129.07,35.10],[121.47,31.23],[121.55,29.87],[103.82,1.35],[72.94,18.93]],
+    inland:[[[72.94,18.93],[79.08,28.6]]],
+    stops:"부산→상하이→닝보→싱가포르→Nhava Sheva(Mumbai) ✓",
+    inlandStops:"→ ICD/PPG (내륙)",
+    showPorts:["Shanghai","Ningbo","Singapore","Nhava Sheva\n(Mumbai)","ICD/PPG"]
+  },
+  {
+    name:"Hamburg", color:"#f57f17",
+    sea:[[129.07,35.10],[121.47,31.23],[118.08,24.48],...capeHamburg],
+    stops:"부산→상하이→샤먼→싱가포르→희망봉→Rotterdam→Hamburg ✓",
+    showPorts:["Shanghai","Xiamen (샤먼)","Singapore","Cape of\nGood Hope","Rotterdam","Hamburg"]
+  },
+  {
+    name:"Poland (Gdansk)", color:"#2e7d32",
+    sea:[[129.07,35.10],[121.47,31.23],[118.08,24.48],...capePoland],
+    stops:"부산→상하이→샤먼→싱가포르→희망봉→(대서양)→Gdansk",
+    showPorts:["Shanghai","Xiamen (샤먼)","Singapore","Cape of\nGood Hope","Gdansk"]
+  },
+];
+
+const ALL_PORTS = [
+  {name:"Busan",ll:[129.07,35.10],main:true,ox:8,oy:-8},
+  {name:"Tokyo",ll:[139.70,35.68],main:false,ox:8,oy:-6},
+  {name:"Shanghai",ll:[121.47,31.23],main:false,ox:8,oy:-3},
+  {name:"Ningbo",ll:[121.55,29.87],main:false,ox:8,oy:3},
+  {name:"Xiamen (샤먼)",ll:[118.08,24.48],main:false,ox:8,oy:0},
+  {name:"Hong Kong",ll:[114.17,22.32],main:false,ox:-6,oy:9},
+  {name:"Singapore",ll:[103.82,1.35],main:true,ox:8,oy:3},
+  {name:"Jakarta",ll:[106.82,-6.18],main:false,ox:8,oy:4},
+  {name:"Laem Chabang\n(Thailand)",ll:[100.90,13.08],main:false,ox:8,oy:-3},
+  {name:"Nhava Sheva\n(Mumbai)",ll:[72.94,18.93],main:false,ox:-6,oy:9},
+  {name:"ICD/PPG",ll:[79.08,28.6],inland:true,ox:8,oy:0},
+  {name:"Jebel Ali",ll:[55.13,25.10],main:false,ox:7,oy:5},
+  {name:"Dammam",ll:[50.10,26.43],main:false,ox:7,oy:-5},
+  {name:"Jeddah",ll:[39.20,21.48],main:false,ox:-6,oy:-8},
+  {name:"LA/Long Beach",ll:[242,33.74],main:true,ox:-5,oy:-10},
+  {name:"Chicago IL",ll:[272.35,41.85],inland:true,ox:6,oy:0},
+  {name:"Elkton MD",ll:[276.03,39.60],inland:true,ox:6,oy:0},
+  {name:"Memphis TN",ll:[269.95,35.15],inland:true,ox:6,oy:0},
+  {name:"Dallas TX",ll:[263.2,32.78],inland:true,ox:6,oy:0},
+  {name:"Gdansk",ll:[18.47,54.35],main:false,ox:6,oy:0},
+  {name:"Rotterdam",ll:[4.47,51.92],main:false,ox:-6,oy:-6},
+  {name:"Hamburg",ll:[9.99,53.55],main:false,ox:6,oy:-6},
+  {name:"Cape of\nGood Hope",ll:[18.50,-34.80],main:false,ox:7,oy:6},
+];
+
+const proj = d3.geoNaturalEarth1().rotate([-150,0]).scale(165).translate([W/2, H/2+20]);
+const gpath = d3.geoPath().projection(proj);
+const defs = svg.append("defs");
+
+ROUTES.forEach(r => {
+  const id = "m" + r.name.replace(/\W+/g,"");
+  const mk = defs.append("marker").attr("id",id).attr("viewBox","0 0 10 10").attr("refX",8).attr("refY",5).attr("markerWidth",5).attr("markerHeight",5).attr("orient","auto-start-reverse");
+  mk.append("path").attr("d","M2 1L8 5L2 9").attr("fill","none").attr("stroke",r.color).attr("stroke-width","1.8");
+});
+defs.append("marker").attr("id","minl").attr("viewBox","0 0 10 10").attr("refX",8).attr("refY",5).attr("markerWidth",4).attr("markerHeight",4).attr("orient","auto-start-reverse")
+  .append("path").attr("d","M2 1L8 5L2 9").attr("fill","none").attr("stroke","#888").attr("stroke-width","1.8");
+
+let rData = {}, portEls = {}, allTimer = null;
+
+fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(r=>r.json()).then(world => {
+  svg.append("rect").attr("width",W).attr("height",H).attr("fill","#cde8f5");
+  svg.append("path").datum({type:"Sphere"}).attr("d",gpath).attr("fill","#cde8f5").attr("stroke","#b0cfdf").attr("stroke-width","1");
+  svg.append("path").datum(d3.geoGraticule()()).attr("d",gpath).attr("fill","none").attr("stroke","rgba(255,255,255,0.2)").attr("stroke-width","0.4");
+  svg.append("path").datum(topojson.feature(world,world.objects.countries)).attr("d",gpath).attr("fill","#dde8c8").attr("stroke","#b0c49a").attr("stroke-width","0.5");
+
+  ROUTES.forEach(r => {
+    svg.append("path").datum({type:"Feature",geometry:{type:"LineString",coordinates:r.sea}}).attr("d",gpath).attr("fill","none").attr("stroke",r.color).attr("stroke-width","1.2").attr("opacity","0.12");
+  });
+
+  ROUTES.forEach(r => {
+    const el = svg.append("path").datum({type:"Feature",geometry:{type:"LineString",coordinates:r.sea}}).attr("d",gpath).attr("fill","none").attr("stroke",r.color).attr("stroke-width","2.8").attr("opacity",0).attr("stroke-linecap","round").attr("marker-end","url(#m"+r.name.replace(/\W+/g,"")+")")
+    const len = el.node().getTotalLength();
+    el.attr("stroke-dasharray",len).attr("stroke-dashoffset",len);
+    const inlandEls = [];
+    if(r.inland){r.inland.forEach(seg=>{const ie=svg.append("path").datum({type:"Feature",geometry:{type:"LineString",coordinates:seg}}).attr("d",gpath).attr("fill","none").attr("stroke","#888").attr("stroke-width","1.8").attr("stroke-dasharray","5,3").attr("opacity",0).attr("marker-end","url(#minl)");inlandEls.push(ie);});}
+    const ship = svg.append("circle").attr("r",5).attr("fill",r.color).attr("stroke","white").attr("stroke-width","2").attr("opacity",0);
+    rData[r.name] = {el, len, ship, inlandEls};
+  });
+
+  ALL_PORTS.forEach(p => {
+    const c = proj(p.ll); if(!c) return;
+    const [px,py] = c;
+    const g = svg.append("g").attr("opacity", p.main ? 1 : 0);
+    if(p.inland){
+      g.append("circle").attr("cx",px).attr("cy",py).attr("r",3.5).attr("fill","white").attr("stroke","#888").attr("stroke-width","1.5");
+    } else {
+      g.append("circle").attr("cx",px).attr("cy",py).attr("r",p.main?5.5:4).attr("fill",p.main?"#1a1a2e":"#3a6baa").attr("stroke","white").attr("stroke-width",p.main?2:1.5);
+    }
+    const anchor = p.ox < 0 ? "end" : (p.ox === 0 ? "middle" : "start");
+    p.name.split("\n").forEach((line,i) => {
+      g.append("text").attr("x",px+p.ox).attr("y",py+p.oy+4+i*11).attr("text-anchor",anchor).attr("font-size",p.main?"12px":"10px").attr("font-weight",p.main?"700":"500").attr("fill","#1a1a2e").attr("stroke","white").attr("stroke-width","2.5").attr("paint-order","stroke").text(line);
+    });
+    portEls[p.name] = g;
+  });
+
+  buildUI();
+});
+
+function showPortsForRoute(r) {
+  ALL_PORTS.forEach(p => { if(!p.main && portEls[p.name]) portEls[p.name].attr("opacity",0); });
+  if(r && r.showPorts) r.showPorts.forEach(n => { if(portEls[n]) portEls[n].attr("opacity",1); });
+}
+
+function animateRoute(r, onDone) {
+  const d = rData[r.name]; if(!d) return;
+  showPortsForRoute(r);
+  const dur = Math.min(4500, Math.max(1200, d.len * 3.0));
+  d.el.attr("opacity",1).attr("stroke-dashoffset",d.len);
+  d.ship.attr("opacity",1);
+  d.el.transition().duration(dur).ease(d3.easeLinear).attr("stroke-dashoffset",0)
+    .on("end", () => {
+      d.ship.attr("opacity",0);
+      d.inlandEls.forEach(ie => ie.transition().duration(600).attr("opacity",0.9));
+      document.getElementById("info-box").innerHTML = `<span style="color:${r.color};font-weight:700;">● ${r.name} 완료 ✓</span>`;
+      if(onDone) setTimeout(onDone, 400);
+    });
+  const node = d.el.node();
+  const t0 = performance.now();
+  (function tick() {
+    const p = Math.min((performance.now()-t0)/dur, 1);
+    const pt = node.getPointAtLength(p * d.len);
+    d.ship.attr("cx", pt.x).attr("cy", pt.y);
+    if(p < 1) requestAnimationFrame(tick);
+  })();
+  document.getElementById("info-box").innerHTML =
+    `<span style="color:${r.color};font-weight:700;">● ${r.name} 운항 중...</span><br>` +
+    `<span style="font-size:10px;color:#555;">${r.stops}</span>` +
+    (r.inlandStops ? `<br><span style="font-size:9.5px;color:#888;">${r.inlandStops}</span>` : "");
+}
+
+function resetRoute(r) {
+  const d = rData[r.name]; if(!d) return;
+  d.el.interrupt().attr("opacity",0).attr("stroke-dashoffset",d.len);
+  d.ship.attr("opacity",0);
+  d.inlandEls.forEach(ie => ie.interrupt().attr("opacity",0));
+}
+
+function resetAll() {
+  if(allTimer){clearTimeout(allTimer);allTimer=null;}
+  ROUTES.forEach(resetRoute);
+  ALL_PORTS.forEach(p => { if(!p.main && portEls[p.name]) portEls[p.name].attr("opacity",0); });
+  document.getElementById("info-box").innerHTML = "";
+}
+
+function playRoute(r) { resetAll(); animateRoute(r); }
+
+function playAll() {
+  resetAll(); let i = 0;
+  function next() {
+    if(i >= ROUTES.length) {
+      document.getElementById("info-box").innerHTML = `<span style="color:#444;font-weight:600;">✓ 전체 재생 완료</span>`;
+      return;
+    }
+    animateRoute(ROUTES[i++], () => { allTimer = setTimeout(next, 300); });
+  }
+  next();
+}
+
+function buildUI() {
+  const c = document.getElementById("route-btns");
+  ROUTES.forEach(r => {
+    const b = document.createElement("button");
+    b.textContent = r.name;
+    b.style.cssText = `background:${r.color};color:white;border:none;border-radius:5px;padding:5px 10px;font-size:11px;cursor:pointer;font-weight:600;`;
+    b.onclick = () => playRoute(r);
+    c.appendChild(b);
+  });
+  document.getElementById("legend").innerHTML =
+    `<div style="font-weight:700;margin-bottom:4px;color:#222;font-size:11px;">해상 경로</div>` +
+    ROUTES.map(r => `<div style="display:flex;align-items:center;gap:7px;">
+      <div style="width:22px;height:3px;background:${r.color};border-radius:2px;flex-shrink:0;"></div>
+      <span style="color:#222;">${r.name}</span></div>`).join("") +
+    `<div style="display:flex;align-items:center;gap:7px;margin-top:5px;padding-top:5px;border-top:0.5px solid #ddd;">
+      <div style="width:22px;border-top:2px dashed #888;flex-shrink:0;"></div>
+      <span style="color:#555;">내륙 운송</span></div>`;
+}
+</script>
+</body>
+</html>
